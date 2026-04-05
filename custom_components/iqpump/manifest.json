@@ -1,0 +1,12 @@
+{
+  "domain": "iqpump",
+  "name": "Jandy iQPUMP01",
+  "version": "1.0.0",
+  "documentation": "https://github.com/Daniellamm/ha-iqpump",
+  "issue_tracker": "https://github.com/Daniellamm/ha-iqpump/issues",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@Daniellamm"],
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}
