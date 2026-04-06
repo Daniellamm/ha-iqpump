@@ -13,17 +13,18 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfPower, UnitOfElectricCurrent, REVOLUTIONS_PER_MINUTE
+from homeassistant.const import UnitOfPower, UnitOfTemperature, REVOLUTIONS_PER_MINUTE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ALLDATA_MOTOR_RPM,
+    ALLDATA_MOTOR_TEMP,
+    ALLDATA_MOTOR_WATTS,
+    ALLDATA_RPM_TARGET,
     CONF_DEVICE_NAME,
     CONF_SERIAL,
     DOMAIN,
-    SHADOW_PUMP_RPM,
-    SHADOW_PUMP_SPEED,
-    SHADOW_PUMP_WATTS,
 )
 from .entity_base import IQPumpBaseEntity
 
@@ -32,15 +33,15 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class IQPumpSensorDescription(SensorEntityDescription):
-    """Describes an iQPUMP sensor, including the shadow field key."""
+    """Describes an iQPUMP sensor, including the alldata field key."""
 
-    shadow_key: str = ""
+    alldata_key: str = ""
 
 
 SENSORS: tuple[IQPumpSensorDescription, ...] = (
     IQPumpSensorDescription(
         key="rpm",
-        shadow_key=SHADOW_PUMP_RPM,
+        alldata_key=ALLDATA_MOTOR_RPM,
         name="Pump RPM",
         native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -48,7 +49,7 @@ SENSORS: tuple[IQPumpSensorDescription, ...] = (
     ),
     IQPumpSensorDescription(
         key="watts",
-        shadow_key=SHADOW_PUMP_WATTS,
+        alldata_key=ALLDATA_MOTOR_WATTS,
         name="Power Draw",
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
@@ -56,9 +57,19 @@ SENSORS: tuple[IQPumpSensorDescription, ...] = (
         icon="mdi:lightning-bolt",
     ),
     IQPumpSensorDescription(
-        key="speed",
-        shadow_key=SHADOW_PUMP_SPEED,
-        name="Speed Preset",
+        key="temperature",
+        alldata_key=ALLDATA_MOTOR_TEMP,
+        name="Motor Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:thermometer",
+    ),
+    IQPumpSensorDescription(
+        key="rpm_target",
+        alldata_key=ALLDATA_RPM_TARGET,
+        name="Target RPM",
+        native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:speedometer",
     ),
@@ -86,7 +97,7 @@ async def async_setup_entry(
 
 
 class IQPumpSensor(IQPumpBaseEntity, SensorEntity):
-    """A read-only sensor reading a single field from the pump shadow."""
+    """A read-only sensor reading a single field from the pump alldata response."""
 
     entity_description: IQPumpSensorDescription
 
@@ -98,7 +109,7 @@ class IQPumpSensor(IQPumpBaseEntity, SensorEntity):
 
     @property
     def native_value(self) -> Any:
-        value = self._pump.get(self.entity_description.shadow_key)
+        value = self._pump.get(self.entity_description.alldata_key)
         if value is None:
             return None
         try:

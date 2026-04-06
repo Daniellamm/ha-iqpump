@@ -38,6 +38,5 @@ class IQPumpBaseEntity(CoordinatorEntity):
 
     @property
     def _pump(self) -> dict:
-        """Return the pump sub-dict from the latest coordinator data."""
-        from .api import IQPumpApiClient  # local import to avoid circular
-        return IQPumpApiClient.extract_pump_state(self.coordinator.data or {})
+        """Return the flattened alldata dict from the latest coordinator data."""
+        return self.coordinator.data or {}

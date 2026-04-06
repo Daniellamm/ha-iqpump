@@ -1,4 +1,4 @@
-"""Number entity — Set target speed — for the Jandy iQPUMP01 integration."""
+"""Number entity — Set custom speed RPM — for the Jandy iQPUMP01 integration."""
 
 from __future__ import annotations
 
@@ -11,13 +11,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ALLDATA_CUSTOM_RPM,
     CONF_DEVICE_NAME,
     CONF_SERIAL,
     DOMAIN,
     PUMP_RPM_MAX,
     PUMP_RPM_MIN,
-    SHADOW_PUMP_RPM,
-    SHADOW_PUMP_SPEED,
 )
 from .entity_base import IQPumpBaseEntity
 
@@ -43,14 +42,14 @@ async def async_setup_entry(
 
 
 class IQPumpSpeedNumber(IQPumpBaseEntity, NumberEntity):
-    """Set the pump target RPM.
+    """Set the pump custom speed RPM.
 
-    Sends the value as desired.rpm in the shadow PATCH.  If the firmware
-    responds to a speed-preset int instead, swap SHADOW_PUMP_RPM for
-    SHADOW_PUMP_SPEED and adjust min/max/step accordingly.
+    This value is used when the pump switch is turned on (opmode=1 / custom
+    speed). The pump runs at this RPM until stopped or until the schedule
+    resumes.
     """
 
-    _attr_name = "Target RPM"
+    _attr_name = "Custom Speed RPM"
     _attr_icon = "mdi:gauge"
     _attr_mode = NumberMode.SLIDER
     _attr_native_min_value = float(PUMP_RPM_MIN)
@@ -60,11 +59,11 @@ class IQPumpSpeedNumber(IQPumpBaseEntity, NumberEntity):
 
     def __init__(self, coordinator, client, serial, device_name) -> None:
         super().__init__(coordinator, client, serial, device_name)
-        self._attr_unique_id = f"{serial}_target_rpm"
+        self._attr_unique_id = f"{serial}_custom_rpm"
 
     @property
     def native_value(self) -> float | None:
-        value = self._pump.get(SHADOW_PUMP_RPM)
+        value = self._pump.get(ALLDATA_CUSTOM_RPM)
         if value is None:
             return None
         try:
@@ -75,6 +74,6 @@ class IQPumpSpeedNumber(IQPumpBaseEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         rpm = int(round(value / 50) * 50)  # snap to 50-RPM increments
         rpm = max(PUMP_RPM_MIN, min(PUMP_RPM_MAX, rpm))
-        _LOGGER.debug("Setting pump RPM to %d (serial=%s)", rpm, self._serial)
-        await self._client.set_state(self._serial, {SHADOW_PUMP_RPM: rpm})
+        _LOGGER.debug("Setting pump custom RPM to %d (serial=%s)", rpm, self._serial)
+        await self._client.set_custom_rpm(self._serial, rpm)
         await self.coordinator.async_request_refresh()

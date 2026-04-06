@@ -10,7 +10,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_DEVICE_NAME, CONF_SERIAL, DOMAIN, SHADOW_PUMP_STATE
+from .const import (
+    ALLDATA_RUNSTATE,
+    CONF_DEVICE_NAME,
+    CONF_SERIAL,
+    DOMAIN,
+    OPMODE_CUSTOM,
+    OPMODE_STOP,
+)
 from .entity_base import IQPumpBaseEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,7 +42,12 @@ async def async_setup_entry(
 
 
 class IQPumpSwitch(IQPumpBaseEntity, SwitchEntity):
-    """Controls pump power (on / off)."""
+    """Controls pump power (on / off).
+
+    Turning on starts the pump in custom-speed mode (uses the Target RPM
+    set via the number entity). Turning off stops the pump immediately.
+    The pump's programmed schedule continues to run independently.
+    """
 
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_icon = "mdi:pump"
@@ -47,17 +59,17 @@ class IQPumpSwitch(IQPumpBaseEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        state = self._pump.get(SHADOW_PUMP_STATE)
-        if state is None:
+        runstate = self._pump.get(ALLDATA_RUNSTATE)
+        if runstate is None:
             return None
-        return bool(int(state))
+        return runstate == "on"
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         _LOGGER.debug("Turning pump ON (serial=%s)", self._serial)
-        await self._client.set_state(self._serial, {SHADOW_PUMP_STATE: 1})
+        await self._client.set_opmode(self._serial, OPMODE_CUSTOM)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         _LOGGER.debug("Turning pump OFF (serial=%s)", self._serial)
-        await self._client.set_state(self._serial, {SHADOW_PUMP_STATE: 0})
+        await self._client.set_opmode(self._serial, OPMODE_STOP)
         await self.coordinator.async_request_refresh()

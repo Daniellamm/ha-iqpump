@@ -37,17 +37,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = IQPumpApiClient(session)
 
     # Restore persisted tokens if available, then verify / refresh them
-    token_data = {
-        CONF_ID_TOKEN: entry.options.get(CONF_ID_TOKEN, ""),
-        CONF_REFRESH_TOKEN: entry.options.get(CONF_REFRESH_TOKEN, ""),
-        CONF_AUTH_TOKEN: entry.options.get(CONF_AUTH_TOKEN, ""),
-        CONF_USER_ID: entry.options.get(CONF_USER_ID, ""),
-    }
-    client.load_tokens(token_data)
+    client.load_tokens(entry.options)
 
     try:
-        # Always ensure we have a valid token at startup
-        if not token_data[CONF_ID_TOKEN]:
+        if not entry.options.get(CONF_ID_TOKEN):
             await client.login(entry.data[CONF_EMAIL], entry.data[CONF_PASSWORD])
         else:
             await client.ensure_authenticated()
@@ -64,9 +57,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     serial = entry.data[CONF_SERIAL]
 
     async def _async_update_data() -> dict:
-        """Fetch latest shadow data — called by the coordinator."""
+        """Fetch latest pump alldata — called by the coordinator."""
         try:
-            shadow = await client.get_shadow(serial)
+            alldata = await client.get_alldata(serial)
         except IQPumpAuthError as err:
             raise ConfigEntryAuthFailed(err) from err
         except IQPumpApiError as err:
@@ -76,7 +69,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(
             entry, options={**entry.options, **client.dump_tokens()}
         )
-        return shadow
+        return alldata
 
     coordinator = DataUpdateCoordinator(
         hass,
