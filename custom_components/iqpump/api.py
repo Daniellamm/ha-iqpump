@@ -12,7 +12,6 @@ import aiohttp
 
 from .const import (
     CONF_AUTH_TOKEN,
-    CONF_EMAIL,
     CONF_ID_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_ID,
@@ -58,16 +57,18 @@ class IQPumpApiClient:
 
     Authentication flow
     -------------------
-    1. POST /users/v1/login  →  IdToken (JWT, ~1 hr) + authentication_token
+    1. POST /users/v1/login with email + password → IdToken (JWT, ~1 hr)
     2. All pump calls: POST /v2/devices/{serial}/control.json
        Headers: api_key + Authorization: {IdToken} (no "Bearer" prefix)
        Body:    {user_id, command, [value]}
-    3. The IdToken expires in ~1 hour; refresh via the RefreshToken path.
+    3. When the IdToken expires, a full email+password re-login is required.
+       The Zodiac API does not support stateless token refresh.
     """
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self._session = session
         self._email: str = ""
+        self._password: str = ""
         self._id_token: str | None = None
         self._refresh_token: str | None = None
         self._auth_token: str | None = None
@@ -88,15 +89,6 @@ class IQPumpApiClient:
         except Exception:  # noqa: BLE001
             return True
 
-    def load_tokens(self, token_data: dict[str, str]) -> None:
-        """Restore previously persisted tokens from a config entry."""
-        self._id_token = token_data.get(CONF_ID_TOKEN)
-        self._refresh_token = token_data.get(CONF_REFRESH_TOKEN)
-        self._auth_token = token_data.get(CONF_AUTH_TOKEN)
-        self._user_id = token_data.get(CONF_USER_ID)
-        if token_data.get(CONF_EMAIL):
-            self._email = token_data[CONF_EMAIL]
-
     def dump_tokens(self) -> dict[str, str]:
         """Return current tokens for persistence in the config entry."""
         return {
@@ -111,27 +103,23 @@ class IQPumpApiClient:
     # ------------------------------------------------------------------
 
     async def login(self, email: str, password: str) -> dict[str, str]:
-        """Full login with email + password. Returns token dict."""
+        """Full login with email + password. Stores credentials for re-auth."""
         self._email = email
-        payload = {
-            "api_key": ZODIAC_API_KEY,
-            "email": email,
-            "password": password,
-        }
-        return await self._do_login(payload, preserve_refresh_token=False)
+        self._password = password
+        return await self._do_auth({"api_key": ZODIAC_API_KEY, "email": email, "password": password})
 
     async def refresh(self) -> dict[str, str]:
-        """Re-authenticate using the stored refresh token (no password needed)."""
+        """Re-authenticate using refresh_token + email + password."""
         if not self._refresh_token:
-            raise IQPumpAuthError("No refresh token available — full re-login required")
-        payload = {
+            raise IQPumpAuthError("No refresh token — full re-login required")
+        return await self._do_auth({
             "api_key": ZODIAC_API_KEY,
             "email": self._email,
+            "password": self._password,
             "refresh_token": self._refresh_token,
-        }
-        return await self._do_login(payload, preserve_refresh_token=True)
+        })
 
-    async def _do_login(self, payload: dict, *, preserve_refresh_token: bool) -> dict[str, str]:
+    async def _do_auth(self, payload: dict) -> dict[str, str]:
         try:
             async with self._session.post(
                 ZODIAC_LOGIN_URL,
@@ -139,7 +127,7 @@ class IQPumpApiClient:
                 raise_for_status=False,
             ) as resp:
                 if resp.status == 401:
-                    raise IQPumpAuthError("Invalid credentials")
+                    raise IQPumpAuthError("Invalid email or password")
                 if resp.status != 200:
                     text = await resp.text()
                     raise IQPumpApiError(f"Login failed: HTTP {resp.status} — {text}")
@@ -149,19 +137,22 @@ class IQPumpApiClient:
 
         oauth = data.get("userPoolOAuth", {})
         self._id_token = oauth["IdToken"]
-        if not preserve_refresh_token:
-            self._refresh_token = oauth.get("RefreshToken")
+        self._refresh_token = oauth.get("RefreshToken") or self._refresh_token
         self._auth_token = data.get("authentication_token", "")
         self._user_id = str(data.get("id", ""))
-
         _LOGGER.debug("Authenticated; user_id=%s", self._user_id)
         return self.dump_tokens()
 
     async def ensure_authenticated(self) -> None:
-        """Proactively refresh the token if it's near expiry."""
+        """Refresh the token if missing or near expiry."""
         if not self._id_token or self._token_expires_soon(self._id_token):
             _LOGGER.debug("Token expired or expiring soon — refreshing")
-            await self.refresh()
+            if self._refresh_token and self._email and self._password:
+                await self.refresh()
+            elif self._email and self._password:
+                await self.login(self._email, self._password)
+            else:
+                raise IQPumpAuthError("Token expired and no credentials stored — re-login required")
 
     # ------------------------------------------------------------------
     # Device discovery
@@ -224,7 +215,7 @@ class IQPumpApiClient:
                 raise_for_status=False,
             ) as resp:
                 if resp.status == 401:
-                    raise IQPumpAuthError("Pump API returned 401 — token may have expired")
+                    raise IQPumpAuthError("Pump API returned 401 — token expired")
                 if resp.status != 200:
                     text = await resp.text()
                     raise IQPumpApiError(f"Pump command failed: HTTP {resp.status} — {text}")
@@ -236,15 +227,13 @@ class IQPumpApiClient:
         """Read full pump state via /alldata/read. Returns flattened alldata dict."""
         await self.ensure_authenticated()
         response = await self._control(serial, "/alldata/read")
-        raw = response.get("alldata", {})
 
-        # Check for offline / error response
         if response.get("status") == "500":
             msg = response.get("error", {}).get("message", "Device offline")
             raise IQPumpApiError(f"Pump reported error: {msg}")
 
         # Flatten motordata sub-dict to top-level keys with "motordata_" prefix
-        alldata = dict(raw)
+        alldata = dict(response.get("alldata", {}))
         motor = alldata.pop("motordata", {})
         for k, v in motor.items():
             alldata[f"motordata_{k}"] = v
