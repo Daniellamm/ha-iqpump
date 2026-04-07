@@ -12,6 +12,7 @@ import aiohttp
 
 from .const import (
     CONF_AUTH_TOKEN,
+    CONF_EMAIL,
     CONF_ID_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_ID,
@@ -93,6 +94,8 @@ class IQPumpApiClient:
         self._refresh_token = token_data.get(CONF_REFRESH_TOKEN)
         self._auth_token = token_data.get(CONF_AUTH_TOKEN)
         self._user_id = token_data.get(CONF_USER_ID)
+        if token_data.get(CONF_EMAIL):
+            self._email = token_data[CONF_EMAIL]
 
     def dump_tokens(self) -> dict[str, str]:
         """Return current tokens for persistence in the config entry."""

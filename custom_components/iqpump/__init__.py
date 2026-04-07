@@ -37,7 +37,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = IQPumpApiClient(session)
 
     # Restore persisted tokens if available, then verify / refresh them
-    client.load_tokens(entry.options)
+    # Merge email from entry.data so refresh() always has it after a restart
+    client.load_tokens({**entry.options, CONF_EMAIL: entry.data.get(CONF_EMAIL, "")})
 
     try:
         if not entry.options.get(CONF_ID_TOKEN):
